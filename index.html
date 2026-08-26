@@ -18,42 +18,64 @@
       <div class="loading-text">載入中...</div>
     </div>
 
-    <div class="top-bar">
-      <span class="app-title">SW</span>
-      <span class="update-status">●</span>
-      <span
-        class="last-update"
-        id="lastUpdate">
-        --:--:--
-      </span>
-      <button
-        class="refresh-btn"
-        id="refreshBtn">
-        ↻
-      </button>
-      <button
-        class="clear-cache-btn"
-        id="clearCacheBtn"
-        title="清除法人/融資融券快取">
-        🗑
-      </button>
-      <button
-        class="clear-cache-btn"
-        id="institutionalBtn"
-        title="三大法人買賣超">
-        🏦
-      </button>
-      <button
-        class="clear-cache-btn"
-        id="historyBtn"
-        title="均線歷史資料 / 補資料">
-        📅
-      </button>
-    </div>
+    <div class="sticky-header">
+      <div class="top-bar">
+        <span class="app-title">SW</span>
+        <span class="update-status">●</span>
+        <span
+          class="last-update"
+          id="lastUpdate">
+          --:--:--
+        </span>
+        <button
+          class="refresh-btn"
+          id="refreshBtn">
+          ↻
+        </button>
+        <button
+          class="clear-cache-btn"
+          id="clearCacheBtn"
+          title="清除法人/融資融券快取">
+          🗑
+        </button>
+        <button
+          class="clear-cache-btn"
+          id="institutionalBtn"
+          title="三大法人買賣超">
+          🏦
+        </button>
+        <button
+          class="clear-cache-btn"
+          id="historyBtn"
+          title="均線歷史資料 / 補資料">
+          📅
+        </button>
+      </div>
 
-    <div
-      class="movers-strip hidden"
-      id="moversStrip"></div>
+      <div class="us-market-panel">
+        <div class="us-market-sentiment">
+          <span
+            class="us-sentiment-label"
+            id="usSentimentLabel">--</span>
+          <span class="us-sentiment-caption">看電子族群氣氛・台股電子看 SPY/QQQ/SMH</span>
+        </div>
+        <div
+          class="us-market-status"
+          id="usMarketStatus">--</div>
+        <div
+          class="us-market-symbols"
+          id="usMarketSymbols"></div>
+        <button
+          class="us-market-refresh-btn"
+          id="usMarketRefreshBtn">
+          重新整理
+        </button>
+      </div>
+
+      <div
+        class="movers-strip hidden"
+        id="moversStrip"></div>
+    </div>
 
     <div
       class="stock-list"
@@ -91,6 +113,9 @@
 
 【融資融券】
 {margin}
+
+【估值】
+本益比 {pe} 倍 / 殖利率 {yield}% / 股價淨值比 {pb} 倍
 
 【今日價位】
 開 {open} / 高 {high} / 低 {low} / 昨收 {prevClose}</textarea

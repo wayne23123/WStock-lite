@@ -1,14 +1,100 @@
-const WATCHLIST = [
-  { code: '2324', name: '仁寶' },
-  { code: '00919', name: '群益台灣精選高息' },
-  { code: '2330', name: '台積電' },
-  { code: '2317', name: '鴻海' },
-  { code: '2454', name: '聯發科' },
-  { code: '2603', name: '長榮' },
-  { code: '2881', name: '富邦金' },
-  { code: '2303', name: '聯電' },
-  { code: '2412', name: '中華電' },
+const WATCHLIST_GROUPS = [
+  {
+    category: '大盤／高息ETF',
+    stocks: [
+      { code: '0050', name: '元大台灣50' },
+      { code: '0056', name: '元大高股息' },
+      { code: '00919', name: '群益台灣精選高息' },
+    ],
+  },
+  {
+    category: '半導體／IC',
+    stocks: [
+      { code: '2330', name: '台積電' },
+      { code: '2454', name: '聯發科' },
+      { code: '2303', name: '聯電' },
+      { code: '2337', name: '旺宏' },
+      { code: '6770', name: '力積電' },
+      { code: '2344', name: '華邦電' },
+      { code: '2408', name: '南亞科' },
+      { code: '2327', name: '國巨' },
+      { code: '8150', name: '南茂' },
+    ],
+  },
+  {
+    category: '電子代工／系統廠',
+    stocks: [
+      { code: '2317', name: '鴻海' },
+      { code: '2324', name: '仁寶' },
+      { code: '2312', name: '金寶' },
+      { code: '2353', name: '宏碁' },
+      { code: '3231', name: '緯創' },
+      { code: '2356', name: '英業達' },
+      { code: '2352', name: '佳世達' },
+      { code: '3706', name: '神達' },
+    ],
+  },
+  {
+    category: '面板',
+    stocks: [
+      { code: '2409', name: '友達' },
+      { code: '3481', name: '群創' },
+      { code: '6116', name: '彩晶' },
+    ],
+  },
+  {
+    category: '金融',
+    stocks: [
+      { code: '2887', name: '台新新光金' },
+      { code: '2884', name: '玉山金' },
+      { code: '2881', name: '富邦金' },
+    ],
+  },
+  {
+    category: '塑化',
+    stocks: [
+      { code: '1303', name: '南亞' },
+      { code: '6505', name: '台塑化' },
+      { code: '1301', name: '台塑' },
+    ],
+  },
+  {
+    category: '鋼鐵／金屬',
+    stocks: [
+      { code: '2002', name: '中鋼' },
+      { code: '2027', name: '大成鋼' },
+      { code: '1605', name: '華新' },
+      { code: '1608', name: '華榮' },
+    ],
+  },
+  {
+    category: '航運／航空',
+    stocks: [
+      { code: '2610', name: '華航' },
+      { code: '2618', name: '長榮航' },
+      { code: '2603', name: '長榮' },
+      { code: '2609', name: '陽明' },
+      { code: '2634', name: '漢翔' },
+    ],
+  },
+  {
+    category: '電信／其他',
+    stocks: [
+      { code: '2412', name: '中華電' },
+      { code: '1717', name: '長興' },
+      { code: '1504', name: '東元' },
+    ],
+  },
 ];
+
+const WATCHLIST = WATCHLIST_GROUPS.flatMap((g) => g.stocks);
+
+const CODE_TO_CATEGORY = {};
+WATCHLIST_GROUPS.forEach((g) => {
+  g.stocks.forEach((s) => {
+    CODE_TO_CATEGORY[s.code] = g.category;
+  });
+});
 
 const DEFAULT_SKILL = `請分析以下股票資料：
 
@@ -26,6 +112,9 @@ const DEFAULT_SKILL = `請分析以下股票資料：
 【融資融券】
 {margin}
 
+【估值】
+本益比 {pe} 倍 / 殖利率 {yield}% / 股價淨值比 {pb} 倍
+
 【今日價位】
 開 {open} / 高 {high} / 低 {low} / 昨收 {prevClose}`;
 
@@ -37,6 +126,8 @@ let institutionalCache = {};
 let marginCache = {};
 let historyCache = {};
 let marketInstCache = {};
+let marketMarginCache = {};
+let marketValuationCache = {};
 let dailyFetchDone = {};
 let prefetchInProgress = false;
 
@@ -45,6 +136,9 @@ try {
 } catch (e) {}
 try {
   marginCache = JSON.parse(localStorage.getItem('marginCache')) || {};
+} catch (e) {}
+try {
+  marketValuationCache = JSON.parse(localStorage.getItem('marketValuationCache')) || {};
 } catch (e) {}
 
 function fmt(num) {
@@ -152,37 +246,109 @@ async function fetchInstitutionalData(code) {
   return data;
 }
 
-async function fetchMarginData(code) {
+function parseMarginRow(row) {
+  const num = (s) => parseInt(String(s).replace(/,/g, ''), 10) || 0;
+  return {
+    code: row[0],
+    name: (row[1] || '').trim(),
+    marginBuy: num(row[2]),
+    marginSell: num(row[3]),
+    marginBalance: num(row[6]),
+    shortBuy: num(row[8]),
+    shortSell: num(row[9]),
+    shortBalance: num(row[12]),
+  };
+}
+
+async function fetchMarketMarginData() {
   const today = getTodayStr();
-  const yesterday = getYesterdayStr();
-  const cacheKey = `${code}_${today}`;
-  if (marginCache[cacheKey]) {
-    return marginCache[cacheKey];
+  if (marketMarginCache[today]) {
+    return marketMarginCache[today];
   }
-  let data = null;
+  const yesterday = getYesterdayStr();
+  let byCode = null;
+  let usedDate = null;
   for (const dateStr of [today, yesterday]) {
-    const url = `/api/margin?date=${dateStr}&stockNo=${code}`;
+    const url = `/api/margin?date=${dateStr}`;
     const result = await fetchTwseAPI(url);
-    if (result && result.data && result.data.length > 0) {
-      const row = result.data[0];
-      data = {
-        marginBuy: parseInt(row[2].replace(/,/g, '')) || 0,
-        marginSell: parseInt(row[3].replace(/,/g, '')) || 0,
-        marginBalance: parseInt(row[5].replace(/,/g, '')) || 0,
-        shortBuy: parseInt(row[6].replace(/,/g, '')) || 0,
-        shortSell: parseInt(row[7].replace(/,/g, '')) || 0,
-        shortBalance: parseInt(row[9].replace(/,/g, '')) || 0,
-        date: dateStr,
-      };
+    const table = result && result.tables && result.tables.find((t) => t.title && t.title.includes('融資融券彙總'));
+    if (table && table.data && table.data.length > 0) {
+      byCode = {};
+      table.data.forEach((row) => {
+        const parsed = parseMarginRow(row);
+        byCode[parsed.code] = parsed;
+      });
+      usedDate = dateStr;
       break;
     }
     await delay(300);
   }
-  if (data) {
-    marginCache[cacheKey] = data;
-    localStorage.setItem('marginCache', JSON.stringify(marginCache));
+  if (!byCode) return null;
+  const marketData = { date: usedDate, byCode: byCode };
+  marketMarginCache[today] = marketData;
+  return marketData;
+}
+
+async function fetchMarginData(code) {
+  const today = getTodayStr();
+  const cacheKey = `${code}_${today}`;
+  if (marginCache[cacheKey]) {
+    return marginCache[cacheKey];
   }
+  const market = await fetchMarketMarginData();
+  if (!market || !market.byCode[code]) return null;
+  const r = market.byCode[code];
+  const data = {
+    marginBuy: r.marginBuy,
+    marginSell: r.marginSell,
+    marginBalance: r.marginBalance,
+    shortBuy: r.shortBuy,
+    shortSell: r.shortSell,
+    shortBalance: r.shortBalance,
+    date: market.date,
+  };
+  marginCache[cacheKey] = data;
+  localStorage.setItem('marginCache', JSON.stringify(marginCache));
   return data;
+}
+
+function parseValuationRow(row) {
+  const num = (s) => {
+    const n = parseFloat(String(s).replace(/,/g, ''));
+    return isNaN(n) ? null : n;
+  };
+  return {
+    code: row[0],
+    name: (row[1] || '').trim(),
+    pe: num(row[2]),
+    dividendYield: num(row[3]),
+    pb: num(row[4]),
+  };
+}
+
+async function fetchMarketValuationData() {
+  const today = getTodayStr();
+  if (marketValuationCache[today]) {
+    return marketValuationCache[today];
+  }
+  const url = `/api/valuation`;
+  const result = await fetchTwseAPI(url);
+  if (!result || !result.data || result.data.length === 0) return null;
+  const byCode = {};
+  result.data.forEach((row) => {
+    const parsed = parseValuationRow(row);
+    byCode[parsed.code] = parsed;
+  });
+  const marketData = { date: result.date || today, byCode: byCode };
+  marketValuationCache[today] = marketData;
+  localStorage.setItem('marketValuationCache', JSON.stringify(marketValuationCache));
+  return marketData;
+}
+
+async function fetchValuationData(code) {
+  const market = await fetchMarketValuationData();
+  if (!market || !market.byCode[code]) return null;
+  return market.byCode[code];
 }
 
 async function fetchHistoryData(codes) {
@@ -211,7 +377,8 @@ async function prefetchDailyData(results) {
     if (!dailyFetchDone[dayKey]) {
       const inst = await fetchInstitutionalData(code);
       const margin = await fetchMarginData(code);
-      if (inst || margin) {
+      const valuation = await fetchValuationData(code);
+      if (inst || margin || valuation) {
         dailyFetchDone[dayKey] = true;
       }
       await delay(500);

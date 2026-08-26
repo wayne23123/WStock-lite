@@ -7,7 +7,7 @@ const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
 const MAX_HISTORY_PER_CODE = 90;
-const MAX_BACKFILL_REQUESTS = 60;
+const MAX_BACKFILL_REQUESTS = 200;
 const MAX_BACKFILL_DAYS = 200;
 const BACKFILL_DELAY_MS = 400;
 const BACKFILL_COOLDOWN_MS = 30000;
@@ -16,6 +16,11 @@ const TWSE_HEADERS = {
   Referer: 'https://www.twse.com.tw/',
   'User-Agent': 'Mozilla/5.0',
 };
+
+const US_SYMBOLS = ['SPY', 'QQQ', 'SMH', 'TLT'];
+const US_MARKET_CACHE_TTL = 30000;
+let usMarketCache = null;
+let usMarketCacheTime = 0;
 
 let backfillInProgress = false;
 let lastBackfillFinishedAt = 0;
@@ -148,6 +153,47 @@ async function maybeAutoRecordToday() {
   }
 }
 
+async function fetchUsSymbol(symbol) {
+  try {
+    const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const meta = json.chart && json.chart.result && json.chart.result[0] && json.chart.result[0].meta;
+    if (!meta || typeof meta.regularMarketPrice !== 'number') return null;
+    const price = meta.regularMarketPrice;
+    const prevClose = meta.chartPreviousClose;
+    const changePercent = prevClose ? ((price - prevClose) / prevClose) * 100 : null;
+    const now = Math.floor(Date.now() / 1000);
+    const regular = meta.currentTradingPeriod && meta.currentTradingPeriod.regular;
+    const isLive = !!(regular && now >= regular.start && now <= regular.end);
+    return { symbol, price, changePercent, isLive };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchUsMarketData() {
+  const now = Date.now();
+  if (usMarketCache && now - usMarketCacheTime < US_MARKET_CACHE_TTL) {
+    return usMarketCache;
+  }
+  const results = await Promise.all(US_SYMBOLS.map(fetchUsSymbol));
+  const symbols = {};
+  let anyLive = false;
+  results.forEach((r) => {
+    if (r) {
+      symbols[r.symbol] = { price: r.price, changePercent: r.changePercent };
+      if (r.isLive) anyLive = true;
+    }
+  });
+  const data = { ok: Object.keys(symbols).length > 0, isLive: anyLive, fetchedAt: now, symbols };
+  usMarketCache = data;
+  usMarketCacheTime = now;
+  return data;
+}
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -226,9 +272,27 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/margin') {
     const date = url.searchParams.get('date') || '';
-    const stockNo = url.searchParams.get('stockNo') || '';
-    const upstream = `https://www.twse.com.tw/rwd/zh/margin/MI_MARGN?date=${encodeURIComponent(date)}&stockNo=${encodeURIComponent(stockNo)}&response=json`;
+    const upstream = `https://www.twse.com.tw/exchangeReport/MI_MARGN?response=json&date=${encodeURIComponent(date)}&selectType=ALL`;
     proxyJson(res, upstream);
+    return;
+  }
+
+  if (url.pathname === '/api/valuation') {
+    const upstream = `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?response=json`;
+    proxyJson(res, upstream);
+    return;
+  }
+
+  if (url.pathname === '/api/usmarket') {
+    fetchUsMarketData()
+      .then((data) => {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(data));
+      })
+      .catch((e) => {
+        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: String(e) }));
+      });
     return;
   }
 

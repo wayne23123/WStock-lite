@@ -38,6 +38,10 @@ class StockApp {
       historyEnd: document.getElementById('historyEnd'),
       startBackfillBtn: document.getElementById('startBackfillBtn'),
       historyStatus: document.getElementById('historyStatus'),
+      usSentimentLabel: document.getElementById('usSentimentLabel'),
+      usMarketStatus: document.getElementById('usMarketStatus'),
+      usMarketSymbols: document.getElementById('usMarketSymbols'),
+      usMarketRefreshBtn: document.getElementById('usMarketRefreshBtn'),
     };
 
     this.init();
@@ -65,6 +69,9 @@ class StockApp {
       if (e.target === this.elements.historyModal) this.elements.historyModal.classList.add('hidden');
     });
     this.elements.startBackfillBtn.addEventListener('click', () => this.startBackfill());
+
+    this.elements.usMarketRefreshBtn.addEventListener('click', () => this.refreshUsMarket());
+    this.refreshUsMarket();
 
     this.refresh();
     setInterval(() => this.refresh(), 5000);
@@ -219,6 +226,60 @@ class StockApp {
     }
   }
 
+  async refreshUsMarket() {
+    this.elements.usMarketRefreshBtn.disabled = true;
+    try {
+      const res = await fetch('/api/usmarket');
+      const data = await res.json();
+      if (!data.ok) {
+        this.elements.usSentimentLabel.textContent = '--';
+        this.elements.usMarketStatus.textContent = '資料取得失敗';
+        return;
+      }
+
+      this.elements.usMarketStatus.textContent = data.isLive ? '已更新' : '時間外';
+      this.elements.usMarketStatus.className = data.isLive ? 'us-market-status live' : 'us-market-status';
+
+      const s = data.symbols;
+      const spy = s.SPY ? s.SPY.changePercent : null;
+      const qqq = s.QQQ ? s.QQQ.changePercent : null;
+      const smh = s.SMH ? s.SMH.changePercent : null;
+
+      if (spy !== null && qqq !== null && smh !== null) {
+        const avg = (spy + qqq + smh * 2) / 4;
+        let label = '中性';
+        let cls = 'us-sentiment-label';
+        if (avg > 0.3) {
+          label = '偏多';
+          cls = 'us-sentiment-label bullish';
+        } else if (avg < -0.3) {
+          label = '偏空';
+          cls = 'us-sentiment-label bearish';
+        }
+        this.elements.usSentimentLabel.textContent = label;
+        this.elements.usSentimentLabel.className = cls;
+      } else {
+        this.elements.usSentimentLabel.textContent = '--';
+      }
+
+      this.elements.usMarketSymbols.innerHTML = ['SPY', 'QQQ', 'SMH', 'TLT']
+        .map((sym) => {
+          const entry = s[sym];
+          if (!entry || entry.changePercent === null) {
+            return `<span class="us-symbol-chip"><span>${sym}</span><span class="us-symbol-value">--</span></span>`;
+          }
+          const dir = entry.changePercent > 0 ? 'up' : entry.changePercent < 0 ? 'down' : '';
+          const sign = entry.changePercent > 0 ? '+' : '';
+          return `<span class="us-symbol-chip ${dir}"><span>${sym}</span><span class="us-symbol-value">${sign}${entry.changePercent.toFixed(2)}%</span></span>`;
+        })
+        .join('');
+    } catch (e) {
+      this.elements.usMarketStatus.textContent = '連線錯誤';
+    } finally {
+      this.elements.usMarketRefreshBtn.disabled = false;
+    }
+  }
+
   async refresh() {
     if (this.isRefreshing) return;
     this.isRefreshing = true;
@@ -265,6 +326,11 @@ class StockApp {
         if (marginCache[marginKey]) {
           stock.marginData = marginCache[marginKey];
         }
+
+        const marketValuation = marketValuationCache[getTodayStr()];
+        if (marketValuation && marketValuation.byCode[code]) {
+          stock.valuation = marketValuation.byCode[code];
+        }
       }
 
       localStorage.setItem('lastPrices', JSON.stringify(this.lastPrices));
@@ -289,29 +355,59 @@ class StockApp {
 
   renderMoversStrip(data) {
     const MOVER_THRESHOLD = 2;
-    const movers = data
-      .filter((s) => Math.abs(s.changePercent || 0) >= MOVER_THRESHOLD)
-      .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent));
+    const gainers = data
+      .filter((s) => (s.changePercent || 0) >= MOVER_THRESHOLD)
+      .sort((a, b) => b.changePercent - a.changePercent);
+    const losers = data
+      .filter((s) => (s.changePercent || 0) <= -MOVER_THRESHOLD)
+      .sort((a, b) => a.changePercent - b.changePercent);
     const container = this.elements.moversStrip;
-    if (!movers.length) {
+
+    if (!gainers.length && !losers.length) {
       container.innerHTML = '';
       container.classList.add('hidden');
       return;
     }
     container.classList.remove('hidden');
-    container.innerHTML = movers
-      .map((s) => {
-        const dir = s.changePercent > 0 ? 'up' : 'down';
-        const sign = s.changePercent > 0 ? '+' : '';
-        return `<span class="mover-chip ${dir}">${s.name} ${sign}${s.changePercent.toFixed(1)}%</span>`;
-      })
-      .join('');
+
+    const row = (label, list, dir) => {
+      if (!list.length) return '';
+      const chips = list
+        .map((s) => `<span class="mover-chip ${dir}" data-code="${s.code}">${s.name} ${dir === 'up' ? '+' : ''}${s.changePercent.toFixed(1)}%</span>`)
+        .join('');
+      return `<div class="movers-row"><span class="movers-row-label">${label}</span>${chips}</div>`;
+    };
+
+    container.innerHTML = row('急漲', gainers, 'up') + row('急跌', losers, 'down');
+    container.querySelectorAll('.mover-chip').forEach((chip) => {
+      chip.addEventListener('click', () => this.scrollToStock(chip.dataset.code));
+    });
+  }
+
+  scrollToStock(code) {
+    const row = this.elements.stockList.querySelector(`.quote-row[data-code="${code}"]`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('row-highlight');
+    clearTimeout(row._highlightTimer);
+    row._highlightTimer = setTimeout(() => {
+      row.classList.remove('row-highlight');
+    }, 3000);
   }
 
   render(data) {
     const container = this.elements.stockList;
     container.innerHTML = '';
+    let lastCategory = null;
     data.forEach((stock) => {
+      const category = CODE_TO_CATEGORY[stock.code] || '其他';
+      if (category !== lastCategory) {
+        const header = document.createElement('div');
+        header.className = 'category-header';
+        header.textContent = category;
+        container.appendChild(header);
+        lastCategory = category;
+      }
       const row = this.createRow(stock);
       container.appendChild(row);
     });
@@ -332,6 +428,7 @@ class StockApp {
     div.className = `quote-row ${dir}`;
 
     const code = String(stock.code);
+    div.dataset.code = code;
     const anchor = this.anchorValues[code] || null;
     let anchorClass = 'flat';
     let anchorDisplay = '--';
@@ -513,6 +610,11 @@ class StockApp {
       marginText = `融資 ${mb} 張（餘額 ${fmt(d.marginBalance)} 張） / 融券 ${ss} 張（餘額 ${fmt(d.shortBalance)} 張）`;
     }
 
+    const valuation = stock.valuation || (marketValuationCache[getTodayStr()] && marketValuationCache[getTodayStr()].byCode[code]) || null;
+    const peText = valuation && valuation.pe !== null ? valuation.pe.toFixed(2) : '--';
+    const pbText = valuation && valuation.pb !== null ? valuation.pb.toFixed(2) : '--';
+    const yieldText = valuation && valuation.dividendYield !== null ? valuation.dividendYield.toFixed(2) : '--';
+
     let text = skillText;
     text = text.replace(/{name}/g, stock.name);
     text = text.replace(/{code}/g, stock.code);
@@ -536,6 +638,9 @@ class StockApp {
     text = text.replace(/{prevClose}/g, prevClose.toFixed(2));
     text = text.replace(/{institutional}/g, instText);
     text = text.replace(/{margin}/g, marginText);
+    text = text.replace(/{pe}/g, peText);
+    text = text.replace(/{pb}/g, pbText);
+    text = text.replace(/{yield}/g, yieldText);
 
     navigator.clipboard
       .writeText(text)
