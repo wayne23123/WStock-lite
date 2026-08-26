@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0" />
+    <title>Stock Watch</title>
+    <link
+      rel="stylesheet"
+      href="style.css" />
+  </head>
+  <body>
+    <div
+      id="loadingOverlay"
+      class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">載入中...</div>
+    </div>
+
+    <div class="top-bar">
+      <span class="app-title">SW</span>
+      <span class="update-status">●</span>
+      <span
+        class="last-update"
+        id="lastUpdate">
+        --:--:--
+      </span>
+      <button
+        class="refresh-btn"
+        id="refreshBtn">
+        ↻
+      </button>
+    </div>
+
+    <div
+      class="stock-list"
+      id="stockList"></div>
+
+    <div
+      class="modal hidden"
+      id="skillModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title">Skill 設定</span>
+          <button
+            class="close-btn"
+            id="closeSkillModal">
+            ✕
+          </button>
+        </div>
+        <div class="skill-body">
+          <label>按下 AI 複製時，會把下方文字 + 股票資料一起複製</label>
+          <textarea
+            id="skillText"
+            rows="6">
+請分析以下股票資料：
+
+股票：{name}({code})
+價格：{price}
+漲跌：{change} ({changePercent}%)
+成交量：{volume}
+內外盤：內盤 {innerVolume} ({innerPercent}%) / 外盤 {outerVolume} ({outerPercent}%)
+均線：5日 {ma5} / 10日 {ma10} / 20日 {ma20}
+錨點：{anchor} 價差 {anchorProfit}</textarea
+          >
+          <button
+            class="save-skill-btn"
+            id="saveSkillBtn">
+            儲存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="toast"
+      class="toast hidden"></div>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
