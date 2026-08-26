@@ -31,7 +31,29 @@
         id="refreshBtn">
         ↻
       </button>
+      <button
+        class="clear-cache-btn"
+        id="clearCacheBtn"
+        title="清除法人/融資融券快取">
+        🗑
+      </button>
+      <button
+        class="clear-cache-btn"
+        id="institutionalBtn"
+        title="三大法人買賣超">
+        🏦
+      </button>
+      <button
+        class="clear-cache-btn"
+        id="historyBtn"
+        title="均線歷史資料 / 補資料">
+        📅
+      </button>
     </div>
+
+    <div
+      class="movers-strip hidden"
+      id="moversStrip"></div>
 
     <div
       class="stock-list"
@@ -53,7 +75,7 @@
           <label>按下 AI 複製時，會把下方文字 + 股票資料一起複製</label>
           <textarea
             id="skillText"
-            rows="6">
+            rows="8">
 請分析以下股票資料：
 
 股票：{name}({code})
@@ -61,14 +83,77 @@
 漲跌：{change} ({changePercent}%)
 成交量：{volume}
 內外盤：內盤 {innerVolume} ({innerPercent}%) / 外盤 {outerVolume} ({outerPercent}%)
-均線：5日 {ma5} / 10日 {ma10} / 20日 {ma20}
-錨點：{anchor} 價差 {anchorProfit}</textarea
+均線：5日 {ma5} / 10日 {ma10} / 20日 {ma20} / 60日 {ma60}
+錨點：{anchor} 價差 {anchorProfit}
+
+【三大法人買賣超】
+{institutional}
+
+【融資融券】
+{margin}
+
+【今日價位】
+開 {open} / 高 {high} / 低 {low} / 昨收 {prevClose}</textarea
           >
           <button
             class="save-skill-btn"
             id="saveSkillBtn">
             儲存
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="modal hidden"
+      id="institutionalModal">
+      <div class="modal-content inst-modal-content">
+        <div class="modal-header">
+          <span class="modal-title">三大法人買賣超</span>
+          <button
+            class="close-btn"
+            id="closeInstitutionalModal">
+            ✕
+          </button>
+        </div>
+        <div
+          class="inst-body"
+          id="institutionalBody"></div>
+      </div>
+    </div>
+
+    <div
+      class="modal hidden"
+      id="historyModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title">均線歷史資料</span>
+          <button
+            class="close-btn"
+            id="closeHistoryModal">
+            ✕
+          </button>
+        </div>
+        <div class="history-body">
+          <label>選擇日期範圍，向證交所補齊每日收盤價（用來算 5/10/20 日均線）</label>
+          <div class="date-range-row">
+            <input
+              type="date"
+              id="historyStart" />
+            <span>至</span>
+            <input
+              type="date"
+              id="historyEnd" />
+          </div>
+          <button
+            class="save-skill-btn"
+            id="startBackfillBtn">
+            開始補資料
+          </button>
+          <div
+            class="history-status"
+            id="historyStatus"></div>
+          <div class="history-hint">單次補資料範圍不宜過大，避免短時間內對證交所發出過多請求。均線資料不會自動每天更新，建議每隔一段時間手動補一次最新資料。</div>
         </div>
       </div>
     </div>

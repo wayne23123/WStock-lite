@@ -10,134 +10,221 @@ const WATCHLIST = [
   { code: '2412', name: '中華電' },
 ];
 
-const DEFAULT_SKILL = `請分析以下股票資料，提供買賣建議、技術面看法、風險評估：
+const DEFAULT_SKILL = `請分析以下股票資料：
 
 股票：{name}({code})
 價格：{price}
 漲跌：{change} ({changePercent}%)
 成交量：{volume}
 內外盤：內盤 {innerVolume} ({innerPercent}%) / 外盤 {outerVolume} ({outerPercent}%)
-均線：5日 {ma5} / 10日 {ma10} / 20日 {ma20}
-錨點：{anchor} 價差 {anchorProfit}`;
+均線：5日 {ma5} / 10日 {ma10} / 20日 {ma20} / 60日 {ma60}
+錨點：{anchor} 價差 {anchorProfit}
+
+【三大法人買賣超】
+{institutional}
+
+【融資融券】
+{margin}
+
+【今日價位】
+開 {open} / 高 {high} / 低 {low} / 昨收 {prevClose}`;
 
 let skillText = localStorage.getItem('skillText') || DEFAULT_SKILL;
 
+let cache = {};
+let lastRequestTime = 0;
+let institutionalCache = {};
+let marginCache = {};
+let historyCache = {};
+let marketInstCache = {};
+let dailyFetchDone = {};
+let prefetchInProgress = false;
+
+try {
+  institutionalCache = JSON.parse(localStorage.getItem('institutionalCache')) || {};
+} catch (e) {}
+try {
+  marginCache = JSON.parse(localStorage.getItem('marginCache')) || {};
+} catch (e) {}
+
 function fmt(num) {
+  if (num === null || num === undefined || isNaN(num)) return '--';
   if (num >= 100000) return (num / 10000).toFixed(0) + '萬';
   if (num >= 10000) return (num / 10000).toFixed(1) + '萬';
   return num.toLocaleString();
 }
 
-let cache = {};
-let lastRequestTime = 0;
-
 function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function genMockStock(code, name) {
-  const seed = parseInt(String(code).replace(/\D/g, '')) || 2330;
-  const base = 20 + (seed % 80) + Math.floor(seed / 100) * 0.5;
-  const chgPct = Math.sin(Date.now() / 60000 + seed) * 0.5 * 3;
-  const price = base * (1 + chgPct / 100);
-  const vol = Math.round(15000 + (seed % 50000));
-  return {
-    code: String(code),
-    name: name || String(code),
-    price: Math.round(price * 100) / 100,
-    open: Math.round(base * 100) / 100,
-    high: Math.round((price + 0.5) * 100) / 100,
-    low: Math.round((price - 0.5) * 100) / 100,
-    prevClose: Math.round(base * 100) / 100,
-    change: Math.round((price - base) * 100) / 100,
-    changePercent: Math.round(chgPct * 100) / 100,
-    volume: vol,
-    innerVolume: Math.round(vol * 0.55),
-    outerVolume: Math.round(vol * 0.45),
-    ma5: Math.round(price * 0.97 * 100) / 100,
-    ma10: Math.round(price * 0.94 * 100) / 100,
-    ma20: Math.round(price * 0.91 * 100) / 100,
-    date: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-    time: new Date().toTimeString().slice(0, 8),
-    source: '模擬',
-    _mock: true,
-  };
+function getTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
 }
 
-async function fetchTwseQuote(code) {
+function getYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+}
+
+function isAfterHours() {
+  const now = new Date();
+  const h = now.getHours();
+  const m = now.getMinutes();
+  return h > 13 || (h === 13 && m >= 30);
+}
+
+async function fetchTwseAPI(url) {
   try {
-    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_${code}.tw&json=1&delay=0&_=${Date.now()}`;
-    const response = await fetch(url, {
-      headers: {
-        Referer: 'https://mis.twse.com.tw/',
-        'User-Agent': 'Mozilla/5.0',
-      },
-    });
+    const response = await fetch(url);
     if (!response.ok) return null;
-    const data = await response.json();
-    if (!data.msgArray || data.msgArray.length === 0) return null;
-    const raw = data.msgArray[0];
-    if (raw.z === '-' && raw.y === '-') return null;
-    const price = raw.z !== '-' && raw.z !== undefined && raw.z !== '' ? parseFloat(raw.z) : parseFloat(raw.y);
-    const open = raw.o !== '-' && raw.o !== undefined && raw.o !== '' ? parseFloat(raw.o) : price;
-    const high = raw.h !== '-' && raw.h !== undefined && raw.h !== '' ? parseFloat(raw.h) : price;
-    const low = raw.l !== '-' && raw.l !== undefined && raw.l !== '' ? parseFloat(raw.l) : price;
-    const prevClose = raw.y !== '-' && raw.y !== undefined && raw.y !== '' ? parseFloat(raw.y) : price;
-    const volume = parseInt(raw.v) || 0;
-    const change = price - prevClose;
-    const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-    const inner = raw.it && raw.it !== '-' ? parseInt(raw.it) : 0;
-    const outer = raw.ot && raw.ot !== '-' ? parseInt(raw.ot) : 0;
-    return {
-      code: String(code),
-      name: raw.n || String(code),
-      price: price,
-      open: open,
-      high: high,
-      low: low,
-      prevClose: prevClose,
-      change: change,
-      changePercent: changePercent,
-      volume: volume,
-      innerVolume: inner,
-      outerVolume: outer,
-      ma5: price * 0.98,
-      ma10: price * 0.96,
-      ma20: price * 0.94,
-      date: raw.d || '',
-      time: raw.t || '',
-      source: 'TWSE',
-      raw: raw,
-    };
+    return await response.json();
   } catch (e) {
     return null;
   }
 }
 
-async function fetchSingle(code, name) {
-  const key = `single_${code}`;
-  const now = Date.now();
-  if (cache[key] && now - cache[key].time < 3000) {
-    return cache[key].data;
+function parseInstRow(row) {
+  const foreignShares = (parseInt(row[4].replace(/,/g, '')) || 0) + (parseInt(row[7].replace(/,/g, '')) || 0);
+  const investmentShares = parseInt(row[10].replace(/,/g, '')) || 0;
+  const dealerShares = parseInt(row[11].replace(/,/g, '')) || 0;
+  const foreign = Math.round(foreignShares / 1000);
+  const investment = Math.round(investmentShares / 1000);
+  const dealer = Math.round(dealerShares / 1000);
+  return {
+    code: row[0],
+    name: (row[1] || '').trim(),
+    foreign: foreign,
+    investment: investment,
+    dealer: dealer,
+    total: foreign + investment + dealer,
+  };
+}
+
+async function fetchMarketInstitutionalData() {
+  const today = getTodayStr();
+  if (marketInstCache[today]) {
+    return marketInstCache[today];
   }
-  const elapsed = now - lastRequestTime;
-  if (elapsed < 500) {
-    await delay(500 - elapsed);
+  const yesterday = getYesterdayStr();
+  let parsed = null;
+  let usedDate = null;
+  for (const dateStr of [today, yesterday]) {
+    const url = `/api/institutional?date=${dateStr}`;
+    const result = await fetchTwseAPI(url);
+    if (result && result.data && result.data.length > 0) {
+      parsed = result.data.map(parseInstRow);
+      usedDate = dateStr;
+      break;
+    }
+    await delay(300);
   }
-  let data = await fetchTwseQuote(code);
-  if (!data) {
-    data = genMockStock(code, name);
+  if (!parsed) return null;
+  const byCode = {};
+  parsed.forEach((r) => {
+    byCode[r.code] = r;
+  });
+  const sorted = parsed.slice().sort((a, b) => b.total - a.total);
+  const marketData = {
+    date: usedDate,
+    byCode: byCode,
+    buyRanking: sorted.slice(0, 40),
+    sellRanking: sorted.slice(-40).reverse(),
+  };
+  marketInstCache[today] = marketData;
+  return marketData;
+}
+
+async function fetchInstitutionalData(code) {
+  const today = getTodayStr();
+  const cacheKey = `${code}_${today}`;
+  if (institutionalCache[cacheKey]) {
+    return institutionalCache[cacheKey];
   }
-  cache[key] = { data: data, time: Date.now() };
-  lastRequestTime = Date.now();
+  const market = await fetchMarketInstitutionalData();
+  if (!market || !market.byCode[code]) return null;
+  const r = market.byCode[code];
+  const data = { foreign: r.foreign, investment: r.investment, dealer: r.dealer, date: market.date };
+  institutionalCache[cacheKey] = data;
+  localStorage.setItem('institutionalCache', JSON.stringify(institutionalCache));
   return data;
+}
+
+async function fetchMarginData(code) {
+  const today = getTodayStr();
+  const yesterday = getYesterdayStr();
+  const cacheKey = `${code}_${today}`;
+  if (marginCache[cacheKey]) {
+    return marginCache[cacheKey];
+  }
+  let data = null;
+  for (const dateStr of [today, yesterday]) {
+    const url = `/api/margin?date=${dateStr}&stockNo=${code}`;
+    const result = await fetchTwseAPI(url);
+    if (result && result.data && result.data.length > 0) {
+      const row = result.data[0];
+      data = {
+        marginBuy: parseInt(row[2].replace(/,/g, '')) || 0,
+        marginSell: parseInt(row[3].replace(/,/g, '')) || 0,
+        marginBalance: parseInt(row[5].replace(/,/g, '')) || 0,
+        shortBuy: parseInt(row[6].replace(/,/g, '')) || 0,
+        shortSell: parseInt(row[7].replace(/,/g, '')) || 0,
+        shortBalance: parseInt(row[9].replace(/,/g, '')) || 0,
+        date: dateStr,
+      };
+      break;
+    }
+    await delay(300);
+  }
+  if (data) {
+    marginCache[cacheKey] = data;
+    localStorage.setItem('marginCache', JSON.stringify(marginCache));
+  }
+  return data;
+}
+
+async function fetchHistoryData(codes) {
+  try {
+    const url = `/api/history?codes=${encodeURIComponent(codes.join(','))}`;
+    const result = await fetchTwseAPI(url);
+    if (result) {
+      historyCache = Object.assign({}, historyCache, result);
+    }
+  } catch (e) {}
+  return historyCache;
+}
+
+function computeMA(closes, period) {
+  if (!closes || closes.length < period) return null;
+  const slice = closes.slice(-period);
+  const sum = slice.reduce((a, b) => a + b.close, 0);
+  return sum / period;
+}
+
+async function prefetchDailyData(results) {
+  const today = getTodayStr();
+  for (const stock of results) {
+    const code = stock.code;
+    const dayKey = `${code}_${today}`;
+    if (!dailyFetchDone[dayKey]) {
+      const inst = await fetchInstitutionalData(code);
+      const margin = await fetchMarginData(code);
+      if (inst || margin) {
+        dailyFetchDone[dayKey] = true;
+      }
+      await delay(500);
+    }
+  }
 }
 
 async function fetchBatch(codes) {
   const codeList = codes.map((item) => (typeof item === 'string' ? item : item.code));
   const key = codeList.join(',');
   const now = Date.now();
-  if (cache[key] && now - cache[key].time < 3000) {
+  const cacheTtl = isAfterHours() ? 300000 : 3000;
+  if (cache[key] && now - cache[key].time < cacheTtl) {
     return cache[key].data;
   }
   const elapsed = now - lastRequestTime;
@@ -145,15 +232,10 @@ async function fetchBatch(codes) {
     await delay(500 - elapsed);
   }
   const chStr = codeList.map((c) => `tse_${c}.tw`).join('|');
-  const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${chStr}&json=1&delay=0&_=${Date.now()}`;
+  const url = `/api/quote?ex_ch=${encodeURIComponent(chStr)}`;
   let results = [];
   try {
-    const response = await fetch(url, {
-      headers: {
-        Referer: 'https://mis.twse.com.tw/',
-        'User-Agent': 'Mozilla/5.0',
-      },
-    });
+    const response = await fetch(url);
     if (response.ok) {
       const data = await response.json();
       if (data.msgArray && data.msgArray.length > 0) {
@@ -165,14 +247,15 @@ async function fetchBatch(codes) {
         });
         results = data.msgArray.map((raw) => {
           const code = raw.c || '';
-          const price = raw.z !== '-' && raw.z !== undefined && raw.z !== '' ? parseFloat(raw.z) : parseFloat(raw.y);
-          const open = raw.o !== '-' && raw.o !== undefined && raw.o !== '' ? parseFloat(raw.o) : price;
-          const high = raw.h !== '-' && raw.h !== undefined && raw.h !== '' ? parseFloat(raw.h) : price;
-          const low = raw.l !== '-' && raw.l !== undefined && raw.l !== '' ? parseFloat(raw.l) : price;
-          const prevClose = raw.y !== '-' && raw.y !== undefined && raw.y !== '' ? parseFloat(raw.y) : price;
+          const hasTrade = raw.z !== '-' && raw.z !== undefined && raw.z !== '';
+          const price = hasTrade ? parseFloat(raw.z) : null;
+          const open = raw.o !== '-' && raw.o !== undefined && raw.o !== '' ? parseFloat(raw.o) : 0;
+          const high = raw.h !== '-' && raw.h !== undefined && raw.h !== '' ? parseFloat(raw.h) : 0;
+          const low = raw.l !== '-' && raw.l !== undefined && raw.l !== '' ? parseFloat(raw.l) : 0;
+          const prevClose = raw.y !== '-' && raw.y !== undefined && raw.y !== '' ? parseFloat(raw.y) : 0;
           const volume = parseInt(raw.v) || 0;
-          const change = price - prevClose;
-          const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+          const change = hasTrade ? price - prevClose : 0;
+          const changePercent = hasTrade ? (prevClose !== 0 ? (change / prevClose) * 100 : 0) : 0;
           let inner = Math.round(volume * 0.5);
           let outer = Math.round(volume * 0.5);
           if (raw.f && raw.f !== '-') {
@@ -199,6 +282,7 @@ async function fetchBatch(codes) {
             code: code,
             name: nameMap[code] || raw.n || code,
             price: price,
+            hasTrade: hasTrade,
             open: open,
             high: high,
             low: low,
@@ -208,40 +292,35 @@ async function fetchBatch(codes) {
             volume: volume,
             innerVolume: inner,
             outerVolume: outer,
-            ma5: price * 0.98,
-            ma10: price * 0.96,
-            ma20: price * 0.94,
+            ma5: null,
+            ma10: null,
+            ma20: null,
             date: raw.d || '',
             time: raw.t || '',
             source: 'TWSE',
             raw: raw,
           };
         });
-        const allCodes = codeList.slice();
-        const foundCodes = results.map((r) => r.code);
-        const missingCodes = allCodes.filter((c) => !foundCodes.includes(c));
-        for (const c of missingCodes) {
-          const name = nameMap[c] || c;
-          results.push(genMockStock(c, name));
-        }
         cache[key] = { data: results, time: Date.now() };
         lastRequestTime = Date.now();
+
+        if (isAfterHours() && !prefetchInProgress) {
+          prefetchInProgress = true;
+          prefetchDailyData(results).finally(() => {
+            prefetchInProgress = false;
+          });
+        }
+
         return results;
       }
     }
   } catch (e) {
-    console.warn('批次抓取失敗，改用單筆:', e);
-  }
-  for (const item of codes) {
-    const code = typeof item === 'string' ? item : item.code;
-    const name = typeof item === 'string' ? code : item.name;
-    const data = await fetchSingle(code, name);
-    results.push(data);
+    console.warn('批次抓取失敗:', e);
   }
   cache[key] = { data: results, time: Date.now() };
   return results;
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { WATCHLIST, fetchBatch, fmt };
+  module.exports = { WATCHLIST, fetchBatch, fmt, skillText, fetchInstitutionalData, fetchMarginData };
 }

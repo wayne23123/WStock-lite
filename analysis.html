@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>技術分析</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="analysis.css" />
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  </head>
+  <body class="analysis-body">
+    <div class="analysis-top-bar">
+      <a class="back-link" href="index.html">← 回列表</a>
+      <span class="analysis-title" id="stockTitle">載入中...</span>
+      <span class="analysis-price" id="stockPrice">--</span>
+    </div>
+
+    <div class="analysis-layout">
+      <div class="analysis-main">
+        <div class="chart-card">
+          <div class="chart-controls">
+            <label><input type="checkbox" id="toggleMA5" checked /> MA5</label>
+            <label><input type="checkbox" id="toggleMA10" checked /> MA10</label>
+            <label><input type="checkbox" id="toggleMA20" checked /> MA20</label>
+            <label><input type="checkbox" id="toggleMA60" /> MA60</label>
+            <label><input type="checkbox" id="toggleBoll" /> 布林通道</label>
+          </div>
+          <div id="mainChart" class="chart-box"></div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-controls">
+            <button class="osc-btn active" data-osc="kd">KD</button>
+            <button class="osc-btn" data-osc="macd">MACD</button>
+            <button class="osc-btn" data-osc="rsi">RSI</button>
+          </div>
+          <div id="oscChart" class="chart-box chart-box-small"></div>
+        </div>
+
+        <div class="commentary-card">
+          <div class="commentary-header">
+            <span class="commentary-title">當前評論（依技術指標自動產生）</span>
+            <button class="copy-commentary-btn" id="copyCommentaryBtn">📋 複製給AI</button>
+          </div>
+          <div class="commentary-text" id="commentaryText">計算中...</div>
+          <div class="commentary-disclaimer">以上為程式依均線／布林通道／KD／MACD／RSI 數值產生的參考描述，非投資建議。</div>
+        </div>
+      </div>
+
+      <div class="analysis-edu">
+        <h2>技術分析教學</h2>
+
+        <section class="edu-section">
+          <h3>K線是什麼</h3>
+          <p>每一根K線代表一段時間（這裡是一天）的價格變化，由四個價位組成：開盤價、收盤價、最高價、最低價。實體部分是開盤與收盤價之間的區間，上下的細線（影線）代表當天觸及的最高與最低價。</p>
+          <div class="candle-demo">
+            <div class="candle-item">
+              <svg viewBox="0 0 40 80" class="candle-svg">
+                <line x1="20" y1="4" x2="20" y2="20" class="wick up" />
+                <rect x="10" y="20" width="20" height="40" class="body up" />
+                <line x1="20" y1="60" x2="20" y2="76" class="wick up" />
+              </svg>
+              <span>紅K（收盤 &gt; 開盤）</span>
+            </div>
+            <div class="candle-item">
+              <svg viewBox="0 0 40 80" class="candle-svg">
+                <line x1="20" y1="4" x2="20" y2="20" class="wick down" />
+                <rect x="10" y="20" width="20" height="40" class="body down" />
+                <line x1="20" y1="60" x2="20" y2="76" class="wick down" />
+              </svg>
+              <span>綠K（收盤 &lt; 開盤）</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="edu-section">
+          <h3>常見K線型態</h3>
+          <div class="pattern-grid" id="patternGrid"></div>
+        </section>
+
+        <section class="edu-section">
+          <h3>量價關係</h3>
+          <ul class="edu-list">
+            <li><strong>價漲量增</strong>：買方積極追價，趨勢較容易延續。</li>
+            <li><strong>價漲量縮</strong>：追價意願轉弱，留意上漲動能是否即將衰竭。</li>
+            <li><strong>價跌量增</strong>：賣壓沉重，恐慌性賣出，短線可能加速探底。</li>
+            <li><strong>價跌量縮</strong>：賣壓趨緩，可能進入整理階段。</li>
+            <li><strong>爆量</strong>（本頁面/主頁面中標示「爆量」）：成交量明顯放大，通常代表當天有較大分歧或消息面刺激，容易是短線轉折點。</li>
+          </ul>
+        </section>
+
+        <section class="edu-section">
+          <h3>均線 MA</h3>
+          <p>將最近 N 天的收盤價取平均，用來平滑價格波動、判斷趨勢方向。價格站上均線通常視為偏多，跌破則偏空；短天期均線（如 MA5）由上往下穿越長天期均線（如 MA20）稱為「死亡交叉」，反之為「黃金交叉」。均線呈現「5日 &gt; 10日 &gt; 20日 &gt; 60日」由上而下排列，稱為多頭排列；反過來則是空頭排列。</p>
+        </section>
+
+        <section class="edu-section">
+          <h3>布林通道 Bollinger Bands</h3>
+          <p>以 20 日均線為中軌，上下各加減 2 倍標準差畫出上軌與下軌，反映股價的波動範圍。股價貼近上軌代表相對強勢（但也可能過熱），貼近下軌代表相對弱勢（但也可能超跌）。通道收窄（上下軌變窄）代表波動度降低，常是變盤前兆。</p>
+        </section>
+
+        <section class="edu-section">
+          <h3>KD 隨機指標</h3>
+          <p>比較目前收盤價在最近 9 天最高價與最低價區間中的相對位置，計算出 K 值與 D 值（0~100）。K、D 值超過 80 通常視為超買，低於 20 視為超賣。K 值由下往上穿越 D 值稱為「黃金交叉」（偏多訊號），由上往下穿越稱為「死亡交叉」（偏空訊號）。KD 對短線波動較敏感，容易出現假訊號，適合搭配其他指標一起看。</p>
+        </section>
+
+        <section class="edu-section">
+          <h3>MACD</h3>
+          <p>由快線（12 日 EMA）與慢線（26 日 EMA）的差值（DIF）、以及 DIF 的 9 日 EMA（訊號線）組成，兩者之差畫成柱狀圖。柱狀圖由負轉正代表短線動能轉強，由正轉負代表動能轉弱。DIF 由下往上穿越訊號線是黃金交叉，適合判斷中長期的趨勢轉折，訊號比 KD 穩定但反應較慢。</p>
+        </section>
+
+        <section class="edu-section">
+          <h3>RSI 相對強弱指標</h3>
+          <p>比較最近一段期間（通常 14 天）上漲幅度與下跌幅度的比重，數值介於 0~100。一般 70 以上視為超買、30 以下視為超賣。RSI 適合判斷買賣力道強弱，長期處於高檔可能代表趨勢仍強（不一定馬上回檔），使用時建議搭配價格趨勢一起判讀，而非單純數值過高就直接視為賣出訊號。</p>
+        </section>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="analysis.js"></script>
+  </body>
+</html>
