@@ -35,56 +35,6 @@ function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function fetchTwseQuote(code) {
-  try {
-    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_${code}.tw&json=1&delay=0&_=${Date.now()}`;
-    const response = await fetch(url, {
-      headers: {
-        Referer: 'https://mis.twse.com.tw/',
-        'User-Agent': 'Mozilla/5.0',
-      },
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (!data.msgArray || data.msgArray.length === 0) return null;
-    const raw = data.msgArray[0];
-    if (raw.z === '-' && raw.y === '-') return null;
-    const price = raw.z !== '-' ? parseFloat(raw.z) : parseFloat(raw.y);
-    const open = raw.o !== '-' ? parseFloat(raw.o) : price;
-    const high = raw.h !== '-' ? parseFloat(raw.h) : price;
-    const low = raw.l !== '-' ? parseFloat(raw.l) : price;
-    const prevClose = raw.y !== '-' ? parseFloat(raw.y) : price;
-    const volume = parseInt(raw.v) || 0;
-    const change = price - prevClose;
-    const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-    const inner = raw.it && raw.it !== '-' ? parseInt(raw.it) : Math.round(volume * 0.5);
-    const outer = raw.ot && raw.ot !== '-' ? parseInt(raw.ot) : volume - inner;
-    return {
-      code: String(code),
-      name: raw.n || String(code),
-      price: price,
-      open: open,
-      high: high,
-      low: low,
-      prevClose: prevClose,
-      change: change,
-      changePercent: changePercent,
-      volume: volume,
-      innerVolume: inner,
-      outerVolume: outer,
-      ma5: price * 0.98,
-      ma10: price * 0.96,
-      ma20: price * 0.94,
-      date: raw.d || '',
-      time: raw.t || '',
-      source: 'TWSE',
-      raw: raw,
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
 function genMockStock(code, name) {
   const seed = parseInt(String(code).replace(/\D/g, '')) || 2330;
   const base = 20 + (seed % 80) + Math.floor(seed / 100) * 0.5;
@@ -114,15 +64,65 @@ function genMockStock(code, name) {
   };
 }
 
+async function fetchTwseQuote(code) {
+  try {
+    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_${code}.tw&json=1&delay=0&_=${Date.now()}`;
+    const response = await fetch(url, {
+      headers: {
+        Referer: 'https://mis.twse.com.tw/',
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data.msgArray || data.msgArray.length === 0) return null;
+    const raw = data.msgArray[0];
+    if (raw.z === '-' && raw.y === '-') return null;
+    const price = raw.z !== '-' && raw.z !== undefined && raw.z !== '' ? parseFloat(raw.z) : parseFloat(raw.y);
+    const open = raw.o !== '-' && raw.o !== undefined && raw.o !== '' ? parseFloat(raw.o) : price;
+    const high = raw.h !== '-' && raw.h !== undefined && raw.h !== '' ? parseFloat(raw.h) : price;
+    const low = raw.l !== '-' && raw.l !== undefined && raw.l !== '' ? parseFloat(raw.l) : price;
+    const prevClose = raw.y !== '-' && raw.y !== undefined && raw.y !== '' ? parseFloat(raw.y) : price;
+    const volume = parseInt(raw.v) || 0;
+    const change = price - prevClose;
+    const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+    const inner = raw.it && raw.it !== '-' ? parseInt(raw.it) : 0;
+    const outer = raw.ot && raw.ot !== '-' ? parseInt(raw.ot) : 0;
+    return {
+      code: String(code),
+      name: raw.n || String(code),
+      price: price,
+      open: open,
+      high: high,
+      low: low,
+      prevClose: prevClose,
+      change: change,
+      changePercent: changePercent,
+      volume: volume,
+      innerVolume: inner,
+      outerVolume: outer,
+      ma5: price * 0.98,
+      ma10: price * 0.96,
+      ma20: price * 0.94,
+      date: raw.d || '',
+      time: raw.t || '',
+      source: 'TWSE',
+      raw: raw,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 async function fetchSingle(code, name) {
   const key = `single_${code}`;
   const now = Date.now();
-  if (cache[key] && now - cache[key].time < 15000) {
+  if (cache[key] && now - cache[key].time < 3000) {
     return cache[key].data;
   }
   const elapsed = now - lastRequestTime;
-  if (elapsed < 1000) {
-    await delay(1000 - elapsed);
+  if (elapsed < 500) {
+    await delay(500 - elapsed);
   }
   let data = await fetchTwseQuote(code);
   if (!data) {
@@ -137,12 +137,12 @@ async function fetchBatch(codes) {
   const codeList = codes.map((item) => (typeof item === 'string' ? item : item.code));
   const key = codeList.join(',');
   const now = Date.now();
-  if (cache[key] && now - cache[key].time < 15000) {
+  if (cache[key] && now - cache[key].time < 3000) {
     return cache[key].data;
   }
   const elapsed = now - lastRequestTime;
-  if (elapsed < 1000) {
-    await delay(1000 - elapsed);
+  if (elapsed < 500) {
+    await delay(500 - elapsed);
   }
   const chStr = codeList.map((c) => `tse_${c}.tw`).join('|');
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${chStr}&json=1&delay=0&_=${Date.now()}`;
@@ -165,16 +165,36 @@ async function fetchBatch(codes) {
         });
         results = data.msgArray.map((raw) => {
           const code = raw.c || '';
-          const price = raw.z !== '-' ? parseFloat(raw.z) : parseFloat(raw.y);
-          const open = raw.o !== '-' ? parseFloat(raw.o) : price;
-          const high = raw.h !== '-' ? parseFloat(raw.h) : price;
-          const low = raw.l !== '-' ? parseFloat(raw.l) : price;
-          const prevClose = raw.y !== '-' ? parseFloat(raw.y) : price;
+          const price = raw.z !== '-' && raw.z !== undefined && raw.z !== '' ? parseFloat(raw.z) : parseFloat(raw.y);
+          const open = raw.o !== '-' && raw.o !== undefined && raw.o !== '' ? parseFloat(raw.o) : price;
+          const high = raw.h !== '-' && raw.h !== undefined && raw.h !== '' ? parseFloat(raw.h) : price;
+          const low = raw.l !== '-' && raw.l !== undefined && raw.l !== '' ? parseFloat(raw.l) : price;
+          const prevClose = raw.y !== '-' && raw.y !== undefined && raw.y !== '' ? parseFloat(raw.y) : price;
           const volume = parseInt(raw.v) || 0;
           const change = price - prevClose;
           const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-          const inner = raw.it ? parseInt(raw.it) : Math.round(volume * 0.5);
-          const outer = raw.ot ? parseInt(raw.ot) : volume - inner;
+          let inner = Math.round(volume * 0.5);
+          let outer = Math.round(volume * 0.5);
+          if (raw.f && raw.f !== '-') {
+            const fParts = raw.f
+              .split('_')
+              .filter((s) => s !== '')
+              .map(Number);
+            const gParts =
+              raw.g && raw.g !== '-'
+                ? raw.g
+                    .split('_')
+                    .filter((s) => s !== '')
+                    .map(Number)
+                : [];
+            const fSum = fParts.reduce((a, b) => a + b, 0);
+            const gSum = gParts.reduce((a, b) => a + b, 0);
+            const totalFg = fSum + gSum;
+            if (totalFg > 0) {
+              inner = Math.round(volume * (fSum / totalFg));
+              outer = volume - inner;
+            }
+          }
           return {
             code: code,
             name: nameMap[code] || raw.n || code,

@@ -27,7 +27,7 @@ class StockApp {
     });
     this.elements.skillText.value = skillText;
     this.refresh();
-    setInterval(() => this.refresh(), 30000);
+    setInterval(() => this.refresh(), 5000);
   }
 
   async refresh() {
@@ -134,9 +134,9 @@ class StockApp {
                     <i class="buy-bar" style="width:${innerPct}%"></i>
                     <i class="sell-bar" style="width:${outerPct}%"></i>
                 </span>
-                <span class="volume-flow-grid">
-                    <span><span class="buy-text">買 ${fmt(inner)}</span> <small>${innerPct.toFixed(0)}%</small></span>
-                    <span><span class="sell-text">賣 ${fmt(outer)}</span> <small>${outerPct.toFixed(0)}%</small></span>
+               <span class="volume-flow-grid">
+                    <span><span class="buy-text">買 ${inner}筆</span> <small>${innerPct.toFixed(0)}%</small></span>
+                    <span><span class="sell-text">賣 ${outer}筆</span> <small>${outerPct.toFixed(0)}%</small></span>
                 </span>
             </span>
             <span class="quote-ma-cell">
